@@ -806,10 +806,22 @@ impl OrderEscrow {
             return Err(Error::TimeoutNotReached);
         }
         let old = order.state;
-        order.state = OrderState::Cancelled;
+        order.state = match old {
+            OrderState::InTransit => {
+                order.dispute_origin = old;
+                order.dispute_origin_set = true;
+                OrderState::Disputed
+            }
+            OrderState::Delivered => OrderState::Confirmed,
+            _ => OrderState::Cancelled,
+        };
         write_order(&env, &order);
         state_event(&env, order_id, old, order.state);
-        refund_and_release(&env, &order)?;
+        match old {
+            OrderState::InTransit => {}
+            OrderState::Delivered => settle_success(&env, &order)?,
+            _ => refund_and_release(&env, &order)?,
+        }
         env.events()
             .publish((symbol_short!("timeout"), order_id), caller);
         Ok(())
@@ -984,7 +996,7 @@ mod test {
     }
 
     #[test]
-    fn excursion_blocks_confirmation_until_arbiter_resolves() {
+    fn excursion_blocks_confirmation_and_timeout_until_arbiter_resolves() {
         let f = fixture();
         let id = create(&f, 700, 2);
         reach_in_transit(&f, id);
@@ -1008,6 +1020,17 @@ mod test {
                 &BytesN::from_array(&f.env, &[6; 32]),
             ),
             Err(Ok(Error::ExcursionUnresolved)),
+        );
+        f.env
+            .ledger()
+            .with_mut(|l| l.timestamp += CONFIRMATION_TIMEOUT_SECONDS);
+        assert_eq!(
+            f.client().try_timeout_order(&id, &f.lab),
+            Err(Ok(Error::ExcursionUnresolved)),
+        );
+        assert_eq!(
+            f.client().get_order(&id).unwrap().state,
+            OrderState::Delivered
         );
         f.client().resolve_excursion(&id, &f.arbiter, &true);
         f.client().confirm_delivery(
@@ -1051,7 +1074,7 @@ mod test {
     }
 
     #[test]
-    fn unaccepted_and_unconfirmed_delivery_timeouts_refund() {
+    fn unaccepted_timeout_refunds_lab() {
         let f = fixture();
         let unaccepted = create(&f, 100, 1);
         f.env
@@ -1062,25 +1085,54 @@ mod test {
             f.client().get_order(&unaccepted).unwrap().state,
             OrderState::Cancelled
         );
-        let delivered = create(&f, 200, 1);
-        reach_in_transit(&f, delivered);
-        f.client().mark_delivered(&delivered, &f.carrier);
+        let token = TokenClient::new(&f.env, &f.token_id);
+        assert_eq!(token.balance(&f.lab), 1_000_000);
+        assert_eq!(token.balance(&f.supplier), 0);
+        let batch = BatchTestClient::new(&f.env, &f.batch_registry_id)
+            .get_batch(&f.batch_id)
+            .unwrap();
+        assert_eq!(batch.available_quantity, 100);
+        assert_eq!(batch.reserved_quantity, 0);
+    }
+
+    #[test]
+    fn accepted_and_packed_delivery_timeouts_refund_and_release_stock() {
+        let f = fixture();
+        let accepted = create(&f, 250, 3);
+        f.client().accept(&accepted, &f.supplier);
         f.env
             .ledger()
-            .with_mut(|l| l.timestamp += CONFIRMATION_TIMEOUT_SECONDS);
-        f.client().timeout_order(&delivered, &f.lab);
+            .with_mut(|l| l.timestamp += DELIVERY_TIMEOUT_SECONDS);
+        f.client().timeout_order(&accepted, &f.lab);
         assert_eq!(
-            f.client().get_order(&delivered).unwrap().state,
+            f.client().get_order(&accepted).unwrap().state,
+            OrderState::Cancelled
+        );
+        let packed = create(&f, 125, 2);
+        f.client().accept(&packed, &f.supplier);
+        f.client().mark_packed(&packed, &f.supplier);
+        f.env
+            .ledger()
+            .with_mut(|l| l.timestamp += DELIVERY_TIMEOUT_SECONDS);
+        f.client().timeout_order(&packed, &f.lab);
+        assert_eq!(
+            f.client().get_order(&packed).unwrap().state,
             OrderState::Cancelled
         );
         let token = TokenClient::new(&f.env, &f.token_id);
         assert_eq!(token.balance(&f.lab), 1_000_000);
+        assert_eq!(token.balance(&f.supplier), 0);
+        let batch = BatchTestClient::new(&f.env, &f.batch_registry_id)
+            .get_batch(&f.batch_id)
+            .unwrap();
+        assert_eq!(batch.available_quantity, 100);
+        assert_eq!(batch.reserved_quantity, 0);
     }
 
     #[test]
-    fn delivery_timeout_refunds_and_releases_reserved_quantity() {
+    fn in_transit_timeout_moves_to_disputed_and_keeps_funds_escrowed() {
         let f = fixture();
-        let id = create(&f, 250, 3);
+        let id = create(&f, 400, 4);
         reach_in_transit(&f, id);
         f.env
             .ledger()
@@ -1088,8 +1140,74 @@ mod test {
         f.client().timeout_order(&id, &f.lab);
         assert_eq!(
             f.client().get_order(&id).unwrap().state,
-            OrderState::Cancelled
+            OrderState::Disputed
         );
+        let token = TokenClient::new(&f.env, &f.token_id);
+        assert_eq!(token.balance(&f.lab), 999_600);
+        assert_eq!(token.balance(&f.supplier), 0);
+        assert_eq!(token.balance(&f.escrow_id), 400);
+        let batches = BatchTestClient::new(&f.env, &f.batch_registry_id);
+        let batch = batches.get_batch(&f.batch_id).unwrap();
+        assert_eq!(batch.available_quantity, 96);
+        assert_eq!(batch.reserved_quantity, 4);
+
+        let (supplier_amount, lab_amount) = f.client().resolve_dispute(&id, &f.arbiter, &2_500);
+        assert_eq!((supplier_amount, lab_amount), (100, 300));
+        assert_eq!(token.balance(&f.supplier), 100);
+        assert_eq!(token.balance(&f.lab), 999_900);
+        assert_eq!(token.balance(&f.escrow_id), 0);
+        let batch = batches.get_batch(&f.batch_id).unwrap();
+        assert_eq!(batch.available_quantity, 96);
+        assert_eq!(batch.reserved_quantity, 0);
+    }
+
+    #[test]
+    fn delivered_timeout_pays_supplier_and_fulfills_quantity() {
+        let f = fixture();
+        let id = create(&f, 500, 5);
+        reach_in_transit(&f, id);
+        f.client().mark_delivered(&id, &f.carrier);
+        f.env
+            .ledger()
+            .with_mut(|l| l.timestamp += CONFIRMATION_TIMEOUT_SECONDS);
+        f.client().timeout_order(&id, &f.lab);
+        assert_eq!(
+            f.client().get_order(&id).unwrap().state,
+            OrderState::Confirmed
+        );
+        let token = TokenClient::new(&f.env, &f.token_id);
+        assert_eq!(token.balance(&f.supplier), 500);
+        assert_eq!(token.balance(&f.lab), 999_500);
+        assert_eq!(token.balance(&f.escrow_id), 0);
+        assert_eq!(f.client().get_proof(&id), None);
+        let batch = BatchTestClient::new(&f.env, &f.batch_registry_id)
+            .get_batch(&f.batch_id)
+            .unwrap();
+        assert_eq!(batch.available_quantity, 95);
+        assert_eq!(batch.reserved_quantity, 0);
+    }
+
+    #[test]
+    fn second_delivered_timeout_call_is_rejected_without_another_payout() {
+        let f = fixture();
+        let id = create(&f, 750, 3);
+        reach_in_transit(&f, id);
+        f.client().mark_delivered(&id, &f.carrier);
+        f.env
+            .ledger()
+            .with_mut(|l| l.timestamp += CONFIRMATION_TIMEOUT_SECONDS);
+        f.client().timeout_order(&id, &f.lab);
+        let token = TokenClient::new(&f.env, &f.token_id);
+        let supplier_balance = token.balance(&f.supplier);
+        let lab_balance = token.balance(&f.lab);
+        let escrow_balance = token.balance(&f.escrow_id);
+        assert_eq!(
+            f.client().try_timeout_order(&id, &f.lab),
+            Err(Ok(Error::TimeoutNotApplicable)),
+        );
+        assert_eq!(token.balance(&f.supplier), supplier_balance);
+        assert_eq!(token.balance(&f.lab), lab_balance);
+        assert_eq!(token.balance(&f.escrow_id), escrow_balance);
     }
 
     #[test]

@@ -36,20 +36,18 @@ stateDiagram-v2
   Packed --> InTransit: Carrier
   Packed --> Cancelled: 7d delivery timeout
   InTransit --> Delivered: Carrier
-  InTransit --> Cancelled: 7d delivery timeout
   Accepted --> Disputed: Lab, supplier, or carrier
   Packed --> Disputed: Lab, supplier, or carrier
-  InTransit --> Disputed: Lab, supplier, or carrier
-  Delivered --> Confirmed: Lab; acceptable proof, no unresolved excursion
+  InTransit --> Disputed: Party dispute or 7d timeout
+  Delivered --> Confirmed: Lab proof or 72h timeout settlement; no unresolved excursion
   Delivered --> Disputed: Lab, supplier, or carrier
-  Delivered --> Cancelled: 72h confirmation timeout, no unresolved excursion
   Disputed --> Resolved: Arbiter split payout
   Confirmed --> [*]
   Resolved --> [*]
   Cancelled --> [*]
 ```
 
-An excursion is an independent flag: an arbiter may clear it as acceptable or move the order into `Disputed`. Normal lab confirmation is blocked while an excursion remains unresolved. Exact actors, timeout rules, and stock/funds behavior are in the [contract documentation](contracts/README.md#order-escrow) and [architecture notes](docs/architecture.md#implemented-order-transitions).
+An excursion is an independent flag: an arbiter may clear it as acceptable or move the order into `Disputed`; any unresolved excursion blocks both lab confirmation and delivered-timeout settlement. A 7-day timeout in `Accepted` or `Packed` refunds the Lab and releases stock. In `InTransit`, timeout moves to `Disputed` and holds funds and stock for the Arbiter. A `Delivered` order with no unresolved excursion settles to the Supplier after 72 hours and consumes the reserved quantity; this timeout-derived `Confirmed` state has no Lab-signed proof record, and a timeout event distinguishes it from an explicit confirmation. Exact actors, timeout rules, and stock/funds behavior are in the [contract documentation](contracts/README.md#order-escrow) and [architecture notes](docs/architecture.md#implemented-order-transitions).
 
 ## Implemented and planned
 

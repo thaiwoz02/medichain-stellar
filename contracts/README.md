@@ -37,9 +37,9 @@ Public functions: `initialize`, `set_escrow`, `register_batch`, `get_batch`, `or
 
 A registered Lab orders against a fulfillable batch, names a registered logistics provider, and funds escrow using the SEP-41 token interface (including a Stellar Asset Contract). A registry-attested Supplier accepts and packs; the named Carrier marks transit and delivery. A role-authorised Attestor signs numbered checkpoints. Orders have a 100,000 lifetime cap, and each order stores at most 64 immutable checkpoints, rejects sequence gaps/replays and future or decreasing timestamps, and flags readings outside the batch storage range.
 
-An unresolved excursion blocks Lab confirmation and normal settlement. The configured Arbiter may accept the excursion or move the order into dispute. The Lab, Supplier, or Carrier may raise a dispute from `Accepted`, `Packed`, `InTransit`, or `Delivered`. Arbiter resolution uses a Supplier share of 0–10,000 basis points; the remainder is returned to the Lab. Arbiter resolution ends in `Resolved`, distinct from Lab-confirmed `Confirmed`.
+An unresolved excursion blocks Lab confirmation and delivered-timeout settlement. The configured Arbiter may accept the excursion or move the order into dispute. The Lab, Supplier, or Carrier may raise a dispute from `Accepted`, `Packed`, `InTransit`, or `Delivered`. Arbiter resolution uses a Supplier share of 0–10,000 basis points; the remainder is returned to the Lab. Arbiter resolution ends in `Resolved`, distinct from `Confirmed`.
 
-Only full-quantity `Acceptable` proof with no unresolved excursion can confirm delivery; successful confirmation stores one immutable proof and pays the Supplier. An arbiter can also make an explicit split payout from `Disputed`. There is no carrier fee or platform fee in this stage.
+Lab-initiated `confirm_delivery` requires full-quantity `Acceptable` proof and no unresolved excursion; it stores one immutable proof and pays the Supplier. Separately, expiry of the 72-hour dispute window on a `Delivered` order pays the Supplier and fulfills the reserved quantity without creating a Lab-signed proof record; the order enters terminal `Confirmed` and the timeout event identifies this path. An arbiter can also make an explicit split payout from `Disputed`. There is no carrier fee or platform fee in this stage.
 
 ### Order transition table
 
@@ -55,8 +55,9 @@ Only full-quantity `Acceptable` proof with no unresolved excursion can confirm d
 | `Delivered → Confirmed` | `confirm_delivery`; named Lab | Full quantity, `Acceptable` condition, and no unresolved excursion; immutable proof stored and Supplier paid. |
 | `Placed → Cancelled` | `cancel_before_acceptance`; named Lab | Refund Lab and release reserved quantity. |
 | `Placed → Cancelled` | `timeout_order`; any signer at 48 hours after creation | Refund Lab and release reserved quantity. |
-| `Accepted`, `Packed`, or `InTransit → Cancelled` | `timeout_order`; any signer at 7 days after acceptance | Refund Lab and release reserved quantity. |
-| `Delivered → Cancelled` | `timeout_order`; any signer at 72 hours after delivery | Only if no unresolved excursion; refund Lab and release reserved quantity. |
+| `Accepted` or `Packed → Cancelled` | `timeout_order`; any signer at 7 days after acceptance | Supplier has not marked transit; refund Lab and release reserved quantity. |
+| `InTransit → Disputed` | `timeout_order`; any signer at 7 days after acceptance | Keep funds escrowed and quantity reserved for Arbiter resolution; do not refund automatically. |
+| `Delivered → Confirmed` | `timeout_order`; any signer at 72 hours after delivery | Only if no unresolved excursion; use successful settlement to pay Supplier and fulfill reserved quantity. No Lab-signed proof record is created; the timeout event distinguishes this settlement. |
 | `Accepted`, `Packed`, `InTransit`, or `Delivered → Disputed` | `raise_dispute`; Lab, named Supplier, or named Carrier | Escalates to arbiter; no automatic payout. |
 | `Disputed → Resolved` | `resolve_dispute`; configured Arbiter | Pays the selected split once; zero Supplier share releases inventory, nonzero share finalizes it. |
 
@@ -67,9 +68,10 @@ A checkpoint does not itself change state. `submit_checkpoint` is allowed in `Ac
 Timeouts use Stellar ledger timestamps in seconds:
 
 - An unaccepted `Placed` order refunds after 48 hours from creation.
-- `Accepted`, `Packed`, or `InTransit` refunds 7 days after acceptance if delivery has not occurred.
-- `Delivered` refunds after 72 hours if it has not been confirmed or disputed and has no unresolved excursion.
-- A disputed order has no automatic timeout; the Arbiter must resolve it. Arbiter unavailability is a known stuck-funds risk.
+- `Accepted` or `Packed` refunds after 7 days from acceptance if transit has not begun, and releases reserved quantity.
+- `InTransit` moves to `Disputed` after 7 days from acceptance; funds and reserved quantity remain pending Arbiter resolution.
+- `Delivered` settles to the Supplier after 72 hours if it has not been confirmed or disputed and has no unresolved excursion. This timeout-derived `Confirmed` state does not contain a Lab-signed proof record; the Lab had the window to dispute, and a timeout event records the automatic settlement.
+- An unresolved excursion blocks delivered-timeout settlement. A disputed order has no automatic timeout; the Arbiter must resolve it. Arbiter unavailability is a known stuck-funds risk.
 
 Public functions: `initialize`, `set_arbiter`, `create_order`, `get_order`, `accept`, `mark_packed`, `mark_in_transit`, `mark_delivered`, `submit_checkpoint`, `get_checkpoint`, `confirm_delivery`, `get_proof`, `raise_dispute`, `resolve_excursion`, `resolve_dispute`, `cancel_before_acceptance`, and `timeout_order`.
 
