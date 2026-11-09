@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+testnet-addresses.env*
 
 # Node.js
 node_modules/
@@ -13,6 +14,7 @@ coverage/
 # Rust
 /target/
 **/target/
+**/test_snapshots/
 
 # Local database and containers
 postgres-data/

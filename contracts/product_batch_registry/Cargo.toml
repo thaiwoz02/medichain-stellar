@@ -1,0 +1,16 @@
+[package]
+name = "product_batch_registry"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+participant_registry = { path = "../participant_registry" }
+soroban-sdk = { workspace = true, features = ["testutils"] }

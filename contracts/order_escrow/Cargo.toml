@@ -1,0 +1,17 @@
+[package]
+name = "order_escrow"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+participant_registry = { path = "../participant_registry" }
+product_batch_registry = { path = "../product_batch_registry" }
+soroban-sdk = { workspace = true, features = ["testutils"] }
