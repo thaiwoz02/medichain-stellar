@@ -1,0 +1,33 @@
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+
+# Node.js
+node_modules/
+.npm/
+.next/
+dist/
+coverage/
+
+# Rust
+/target/
+**/target/
+
+# Local database and containers
+postgres-data/
+*.dump
+*.sqlite
+*.sqlite3
+
+# Logs and temporary files
+*.log
+.tmp/
+tmp/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

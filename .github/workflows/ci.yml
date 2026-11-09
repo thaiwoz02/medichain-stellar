@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Soroban contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Check and test contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f contracts/Cargo.toml ]]; then
+            echo "Contract workspace is not present yet; Rust checks will activate when it is added."
+            exit 0
+          fi
+          cargo fmt --manifest-path contracts/Cargo.toml --all -- --check
+          cargo clippy --manifest-path contracts/Cargo.toml --workspace --all-targets -- -D warnings
+          cargo test --manifest-path contracts/Cargo.toml --workspace
+      - name: Audit Rust dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f contracts/Cargo.lock ]]; then
+            echo "Cargo.lock is not present yet; cargo audit will activate when the Rust workspace is added."
+            exit 0
+          fi
+          cargo install cargo-audit --locked
+          cargo audit --file contracts/Cargo.lock
+
+  applications:
+    name: TypeScript applications
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install, audit, lint, test, and build packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          for dir in packages/sdk apps/api apps/web; do
+            if [[ -f "$dir/package.json" ]]; then
+              found=1
+              if [[ ! -f "$dir/package-lock.json" ]]; then
+                echo "Missing pinned npm lockfile: $dir/package-lock.json" >&2
+                exit 1
+              fi
+              (
+                cd "$dir"
+                npm ci
+                npm audit --audit-level=high
+                npm run lint --if-present
+                npm test --if-present
+                npm run build --if-present
+              )
+            fi
+          done
+          if [[ "$found" -eq 0 ]]; then
+            echo "TypeScript packages are not present yet; npm checks will activate as packages are added."
+          fi
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
