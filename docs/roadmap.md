@@ -4,13 +4,12 @@ This roadmap is directional. Each stage depends on review and testing of the pre
 
 ## Build stages
 
-1. **Scaffold and governance:** repository structure, security policy, core documentation, contribution guidance, and CI/security skeleton.
-2. **Participant and batch registries:** Soroban roles, verifier attestations, batch metadata, quantity reservation/release, and focused unit tests.
-3. **Order and condition core:** escrow, cold-chain attestations, proof of condition, authorization/state-transition tests, and happy-path, excursion, dispute, and timeout integration coverage.
-4. **Protocol utilities:** capped fees, optional subscription authorization, reputation counters, and testnet deployment tooling.
-5. **SDK and backend:** generated TypeScript bindings, event indexer, SEP-10 wallet authentication, PostgreSQL/Prisma, and authorised temperature-log ingestion.
-6. **Frontend:** supplier directory, product/batch availability, order funding, shipment timeline, temperature chart, delivery confirmation, proof verification, and administration panel.
-7. **Demo and contributor readiness:** seeded testnet data, end-to-end demo including an excursion, contributor issues, audit preparation, and final operational documentation.
+1. **Scaffold and governance — complete:** repository structure, security policy, core documentation, contribution guidance, and CI/security skeleton.
+2. **Soroban foundation — implemented, unaudited:** participant registry, product/batch registry, order escrow, role-gated checkpoints, immutable proof, dispute settlement, timeout paths, tests, and a testnet deployment script. No testnet deployment was performed.
+3. **Review and testnet readiness — future work:** independent contract review, archival recovery/key-management plan, network deployment validation, and an end-to-end testnet demonstration. This stage is not production readiness.
+4. **SDK and backend — future contributor work:** typed client helpers, event indexer, wallet authentication, PostgreSQL projection, and authorised evidence metadata.
+5. **Frontend — future contributor work:** supplier/batch availability, order funding, shipment timeline, temperature evidence, delivery proof, and administration interface.
+6. **Demo and contributor readiness — future work:** seeded testnet data, end-to-end excursion demonstration, contributor issues, audit preparation, and operational documentation.
 
 ## Pilot and expansion direction
 
@@ -27,6 +26,8 @@ This roadmap is directional. Each stage depends on review and testing of the pre
 - General medicines
 
 These items are intentionally outside the initial scope and should not be introduced without a separate product, regulatory, operational, and security review.
+
+Fees, subscriptions, and reputation are also deliberately deferred; they are not implemented by the current contracts.
 
 ## Readiness gates
 
