@@ -5,21 +5,6 @@ updates:
     schedule:
       interval: weekly
 
-  - package-ecosystem: npm
-    directory: /packages/sdk
-    schedule:
-      interval: weekly
-
-  - package-ecosystem: npm
-    directory: /apps/api
-    schedule:
-      interval: weekly
-
-  - package-ecosystem: npm
-    directory: /apps/web
-    schedule:
-      interval: weekly
-
   - package-ecosystem: github-actions
     directory: /
     schedule:

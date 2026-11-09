@@ -22,7 +22,19 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v4
+      - name: Check for JavaScript or TypeScript source
+        id: sources
+        shell: bash
+        run: |
+          if find apps packages -type f \( -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' \) -print -quit 2>/dev/null | grep -q .; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+            echo 'No JavaScript or TypeScript source exists yet; skipping analysis.'
+          fi
       - uses: github/codeql-action/init@v3
+        if: steps.sources.outputs.present == 'true'
         with:
           languages: javascript-typescript
       - uses: github/codeql-action/analyze@v3
+        if: steps.sources.outputs.present == 'true'
